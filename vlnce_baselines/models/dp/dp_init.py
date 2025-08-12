@@ -28,11 +28,12 @@ def get_tokenizer(args):
 
 def get_vln_nomad_models(config=None):
     model_config = config.DP.model_config
-    pretrained_path_ol = config.pretrained_path_ol
-    load_from_iters = False
+    # pretrained_path_ol = config.pretrained_path_ol
+    # load_from_iters = False
 
     default_config = config.DP.default_config
     nomad_config = config.DP.nomad_config
+    scene = config.DP.scene
 
     with open(default_config, "r") as f:
         default_nomad_config = yaml.safe_load(f)
@@ -45,9 +46,9 @@ def get_vln_nomad_models(config=None):
     
     config.update(user_config)
 
-    if os.path.exists(pretrained_path_ol):
-        print(f"load from iters: {pretrained_path_ol}")
-        load_from_iters = True
+    # if os.path.exists(pretrained_path_ol):
+    #     print(f"load from iters: {pretrained_path_ol}")
+    #     load_from_iters = True
 
 
     if "seed" in config:
@@ -95,8 +96,8 @@ def get_vln_nomad_models(config=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    state_dict = torch.load(config["pretrained_path"], map_location=device)
-    print(f"load model from: {config['pretrained_path']}")
+    state_dict = torch.load(config["pretrained_path"].format(scene=scene), map_location=device)
+    print(f"load model from: {config['pretrained_path'].format(scene=scene)}")
 
     model.load_state_dict(state_dict)
 

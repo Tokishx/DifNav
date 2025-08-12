@@ -48,33 +48,19 @@ TASK:
     SUCCESS_DISTANCE: 3.0
   NDTW:
     SUCCESS_DISTANCE: 3.0
-    # GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/JeFG25nYj2p_{split}_gt.json.gz
     GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/{split}_gt.json.gz
-    # GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/val_seen_gt.json.gz
   SDTW:
     SUCCESS_DISTANCE: 3.0
-    # GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/JeFG25nYj2p_{split}_gt.json.gz
     GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/{split}_gt.json.gz
-    # GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/val_seen_gt.json.gz
   ORACLE_SUCCESS:
     SUCCESS_DISTANCE: 3.0
     
 DATASET:
   TYPE: VLN-CE-v1
-  SPLIT: train
-  SCENE_ID: ac26ZMwG7aT
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_split_scene_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_split_process_3_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_demo_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_split_scene_each_5_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_scene_JeFG25nYj2p_all_bertidx.json.gz
-  DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_scene_JeFG25nYj2p_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_eval_all_080_bertidx.json.gz
-  # DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/{split}/{split}_split_0_bertidx.json.gz
-  # GT_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed/{split}/ac26ZMwG7aT_{split}_gt.json.gz
+  # SPLIT: train
+  Scene: open_area
+  DATA_PATH: data/datasets/R2R_VLNCE_v1-2_preprocessed_BERTidx/scene/open_area_bertidx.json.gz
   SCENES_DIR: data/scene_datasets/
 
 TOP_DOWN_MAP_VLNCE:
-  # DRAW_SHORTEST_PATH: False
   DRAW_REFERENCE_PATH: True

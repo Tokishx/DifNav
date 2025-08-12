@@ -855,38 +855,11 @@ class BaseVLNCETrainer(BaseILTrainer):
         with TensorboardWriter(
             self.config.TENSORBOARD_DIR, flush_secs=self.flush_secs
         ) as writer:
-            if os.path.isfile(self.config.EVAL.CKPT_PATH_DIR):
-                # evaluate singe checkpoint
-                # proposed_index = get_checkpoint_id(
-                #     self.config.EVAL.CKPT_PATH_DIR
-                # )
-                # if proposed_index is not None:
-                #     ckpt_idx = proposed_index
-                # else:
-                #     ckpt_idx = 0
-                self._eval_checkpoint(
-                    self.config.EVAL.CKPT_PATH_DIR,
-                    writer,
-                    checkpoint_index=self.get_ckpt_id(self.config.EVAL.CKPT_PATH_DIR),
-                )
-            else:
-                # evaluate multiple checkpoints in order
-                prev_ckpt_ind = -1 # eval start index
-                while True:
-                    current_ckpt = None
-                    while current_ckpt is None:
-                        current_ckpt = poll_checkpoint_folder(
-                            self.config.EVAL.CKPT_PATH_DIR, prev_ckpt_ind
-                        )
-                        time.sleep(2)  # sleep for 2 secs before polling again
-                    if self.local_rank < 1:
-                        logger.info(f"=======current_ckpt: {current_ckpt}=======")
-                    prev_ckpt_ind += 1
-                    self._eval_checkpoint(
-                        checkpoint_path=current_ckpt,
-                        writer=writer,
-                        checkpoint_index=self.get_ckpt_id(current_ckpt),
-                    )
+            self._eval_checkpoint(
+                self.config.EVAL.CKPT_PATH_DIR,
+                writer,
+                checkpoint_index=0,
+            )
 
     def get_ckpt_id(self, ckpt_path):
         ckpt_path = os.path.basename(ckpt_path)

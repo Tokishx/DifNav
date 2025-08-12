@@ -1,6 +1,8 @@
 export GLOG_minloglevel=2
 export MAGNUM_LOG=quiet
 
+scene=$1
+
 flag1="--exp_name release_r2r
       --run-type train
       --exp-config run_r2r/iter_train.yaml
@@ -24,13 +26,14 @@ flag1="--exp_name release_r2r
 flag2=" --exp_name release_r2r
       --run-type eval
       --exp-config run_r2r/iter_train.yaml
-      SIMULATOR_GPU_IDS [0,1]
-      TORCH_GPU_IDS [0,1]
+      SIMULATOR_GPU_IDS [0]
+      TORCH_GPU_IDS [0]
       GPU_NUMBERS 1
       NUM_ENVIRONMENTS 1
       TASK_CONFIG.SIMULATOR.HABITAT_SIM_V0.ALLOW_SLIDING True
-      EVAL.CKPT_PATH_DIR data/logs/checkpoints/release_r2r_ori/ckpt.iter12000.pth
-      IL.back_algo control
+      EVAL.SPLIT val_seen
+      EVAL.CKPT_PATH_DIR data/checkpoints/open_area.pth
+      MODEL.DP.scene $scene
       "
 
 flag3="--exp_name release_r2r
@@ -46,8 +49,9 @@ flag3="--exp_name release_r2r
       IL.back_algo control
       "
 
-mode=$1
-port=$2
+mode=$2
+port=$3
+
 echo $mode
 case $mode in 
       train)

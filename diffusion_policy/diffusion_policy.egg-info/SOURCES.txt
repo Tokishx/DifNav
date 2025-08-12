@@ -1,0 +1,7 @@
+LICENSE
+README.md
+setup.py
+diffusion_policy.egg-info/PKG-INFO
+diffusion_policy.egg-info/SOURCES.txt
+diffusion_policy.egg-info/dependency_links.txt
+diffusion_policy.egg-info/top_level.txt
