@@ -1,0 +1,3 @@
+action_stats:
+  min: [-1.07, -1.05] # [min_dx, min_dy]
+  max: [1.07, 1.03] # [max_dx, max_dy]

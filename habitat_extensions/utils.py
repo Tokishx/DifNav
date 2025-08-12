@@ -576,8 +576,11 @@ def colorize_draw_agent_and_fit_to_height(
                 maps.draw_waypoint(top_down_map, p[[0,2]], info["meters_per_px"], info["bounds"], maps.GHOST)
         # if 'teacher_ghost' in vis_info and vis_info['teacher_ghost'] is not None:
         #     maps.draw_waypoint(top_down_map, vis_info['teacher_ghost'][[0,2]], info["meters_per_px"], info["bounds"], maps.TEACHER_GHOST)
+
+        # for dp
         if 'predict_ghost' in vis_info:
-            maps.draw_waypoint(top_down_map, vis_info['predict_ghost'][[0,2]], info["meters_per_px"], info["bounds"], maps.PREDICT_GHOST)
+            for p in vis_info['predict_ghost']:
+                maps.draw_waypoint(top_down_map, p[[0,2]], info["meters_per_px"], info["bounds"], maps.PREDICT_GHOST)
         
     top_down_map = maps.colorize_topdown_map(
         top_down_map, info["fog_of_war_mask"]
@@ -587,7 +590,7 @@ def colorize_draw_agent_and_fit_to_height(
         image=top_down_map,
         agent_center_coord=map_agent_pos,
         agent_rotation=info["agent_angle"],
-        agent_radius_px=min(top_down_map.shape[0:2]) // 32,
+        agent_radius_px=min(top_down_map.shape[0:2]) // 320,
     )
 
     if top_down_map.shape[0] > top_down_map.shape[1]:

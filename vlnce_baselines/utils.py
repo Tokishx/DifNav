@@ -3,6 +3,7 @@ import torch.distributed as dist
 import numpy as np
 import math
 import copy
+import h5py
 
 class ARGS():
     def __init__(self):
@@ -72,9 +73,7 @@ def allocate(number, ep_length, size_per_time):
             position = np.where(np.array(load_balance_groups[i]) ==
                           set_length[j])[0]
             position_length = len(position)
-            # print(position_length,j)
             index[position] = length_indexes[:position_length]
-            # print(length_indexes)
             length_to_indexes[set_length[j]] = length_indexes[position_length:]
         indexes.append((index).tolist())
 
@@ -154,9 +153,7 @@ def allocate_by_scene_for_ddp(number, ep_length, size_per_time):
             position = np.where(np.array(load_balance_groups[i]) ==
                           set_length[j])[0]
             position_length = len(position)
-            # print(position_length,j)
             index[position] = length_indexes[:position_length]
-            # print(length_indexes)
             length_to_indexes[set_length[j]] = length_indexes[position_length:]
         indexes.append((index).tolist())
 
@@ -221,3 +218,57 @@ def dir_angle_feature_with_ele(angle_list, device=None):
             ] * (128 // 4))
 
     return heading_enc
+
+def get_traj_pano_fts(scan, vp, device):
+    '''
+    Tokens in each pano: [cand_views, noncand_views, objs]
+    Each token consists of (img_fts, loc_fts (ang_fts, box_fts), nav_types)
+    '''
+
+    view_fts, dep_fts = get_scanvp_feature(scan, vp)
+
+    view_img_fts, view_dep_fts = [], []
+    view_img_fts = view_fts
+    view_dep_fts = dep_fts
+    # combine cand views and noncand views
+    view_img_fts = np.stack(view_img_fts, 0)    # (n_views, dim_ft)
+    view_img_fts = torch.from_numpy(view_img_fts).to(device)
+    view_dep_fts = np.stack(view_dep_fts, 0)
+    view_dep_fts = torch.from_numpy(view_dep_fts).to(device)
+        
+
+    return view_img_fts, view_dep_fts
+
+
+def get_scanvp_feature(scan, viewpoint):
+    img_ft_file = '/workspace/vlnce38/visualnav-transformer/train/vln_features/img_features/CLIP-ViT-B-32-views-habitat.hdf5'
+    dep_ft_file = '/workspace/vlnce38/visualnav-transformer/train/vln_features/depth_features/resnet-views-habitat.hdf5'
+    key = '%s_%s' % (scan, viewpoint)
+    with h5py.File(img_ft_file, 'r') as f:
+        view_fts = f[key][...].astype(np.float32)
+    with h5py.File(dep_ft_file, 'r') as f:
+        dep_fts = f[key][...].astype(np.float32)
+    return view_fts, dep_fts
+
+
+def get_cur_pos_ori(gt_path, stepk, start_heading=None):
+    cur_vp = gt_path[-1]
+    if start_heading:
+        heading = start_heading
+        elevation = 0
+    else:
+        prev_vp = gt_path[-2]
+        dx = prev_vp[0] - cur_vp[0]
+        dy = prev_vp[1] - cur_vp[1]
+        dz = prev_vp[2] - cur_vp[2]
+        # xy_dist = max(np.sqrt(dx**2 + dy**2), 1e-8)
+        # habitat z == y
+        xz_dist = max(np.sqrt(dx**2 + dz**2), 1e-8)
+        xyz_dist = max(np.sqrt(dx**2 + dy**2 + dz**2), 1e-8)
+        heading = np.arcsin(-dx / xz_dist)  # [-pi/2, pi/2]
+        elevation = np.arcsin(dz / xyz_dist)  # [-pi/2, pi/2]
+    return cur_vp, (heading, elevation)
+
+
+
+    

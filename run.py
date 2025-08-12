@@ -81,6 +81,8 @@ def run_exp(exp_name: str, exp_config: str,
     os.system("mkdir -p data/logs/running_log")
     logger.add_filehandler('data/logs/running_log/'+config.LOG_FILE)
 
+    print(f"run_type:{run_type}")
+
     random.seed(config.TASK_CONFIG.SEED)
     np.random.seed(config.TASK_CONFIG.SEED)
     torch.manual_seed(config.TASK_CONFIG.SEED)

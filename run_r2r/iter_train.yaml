@@ -2,14 +2,17 @@ BASE_TASK_CONFIG_PATH: run_r2r/r2r_vlnce.yaml
 SIMULATOR_GPU_IDS: [0]
 TORCH_GPU_ID: 0
 TORCH_GPU_IDS: [0]
-TRAINER_NAME: SS-ETP
+TRAINER_NAME: SS-ETP-DP
 GPU_NUMBERS: 1
 NUM_ENVIRONMENTS: 1
 TENSORBOARD_DIR: data/logs/tensorboard_dirs/
-CHECKPOINT_FOLDER: data/logs/checkpoints/
+CHECKPOINT_FOLDER: data/logs/checkpoints-OL-1LXtFkjw3qL/
 EVAL_CKPT_PATH_DIR: data/logs/checkpoints/
 RESULTS_DIR: data/logs/eval_results/
 VIDEO_DIR: data/logs/video/
+VIDEO_OPTION: [] # disk
+
+
 
 INFERENCE:
   SPLIT: test
@@ -33,12 +36,13 @@ IL:
   lr: 1e-5
   batch_size: 1 # equal to NUM_ENVIRONMENTS
   ml_weight: 1.0
-  expert_policy: spl
+  # expert_policy: spl
+  expert_policy: ndtw
 
-  sample_ratio: 0.75
+  sample_ratio: 1.0
   decay_interval: 3000
   
-  max_traj_len: 15
+  max_traj_len: 75    # Diffusion policy REF
   max_text_len: 80
   loc_noise: 0.5
   waypoint_aug: False
@@ -50,16 +54,19 @@ IL:
 MODEL:
   task_type: r2r
 
-  policy_name: PolicyViewSelectionETP
+  USE_NDTW: True
+
+  policy_name: PolicyViewSelectionETPDP
   NUM_ANGLES: 12
   pretrained_path: pretrained/ETP/mlm.sap_r2r/ckpts/model_step_82500.pt
+  pretrained_path_ol: data/logs/checkpoints/release_r2r/ckpt.iter3000.pth
   fix_lang_embedding: False
   fix_pano_embedding: False
   use_depth_embedding: True
   use_sprels: True
   merge_ghost: True
   consume_ghost: True
-  
+
   spatial_output: False
   RGB_ENCODER:
     output_size: 512
@@ -70,4 +77,9 @@ MODEL:
     directional: 128
   INSTRUCTION_ENCODER:
     bidirectional: True
+
+  DP:
+    model_config: vlnce_baselines/models/dp/run_pt/r2r_model_config_dep.json 
+    default_config: vlnce_baselines/models/dp/config/defaults.yaml
+    nomad_config: vlnce_baselines/models/dp/config/nomad.yaml
 

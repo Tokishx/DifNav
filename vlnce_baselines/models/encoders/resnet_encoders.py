@@ -272,6 +272,7 @@ class CLIPEncoder(nn.Module):
         returns final embedding.
         """
         rgb_observations = observations["rgb"].permute(0, 3, 1, 2)
+        # rgb_observations = observations.permute(0, 3, 1, 2)
         rgb_observations = self.rgb_transform(rgb_observations)
         output = self.model.encode_image(rgb_observations.contiguous())
 

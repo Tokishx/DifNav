@@ -15,8 +15,8 @@ from torch import Tensor, device, dtype
 
 from transformers import BertPreTrainedModel
 
-from vlnce_baselines.common.ops import create_transformer_encoder
-from vlnce_baselines.common.ops import extend_neg_masks, gen_seq_masks, pad_tensors_wgrad
+from .ops import create_transformer_encoder
+from .ops import extend_neg_masks, gen_seq_masks, pad_tensors_wgrad
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
 
 
 
-class  BertEmbeddings(nn.Module):
+class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
     def __init__(self, config):
@@ -298,6 +298,54 @@ class BertOnlyMLMHead(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         return prediction_scores
 
+class CrossAttentionQFormer(nn.Module):
+    def __init__(self, config, num_query_tokens=512, num_heads=12, num_layers=6):
+        super(CrossAttentionQFormer, self).__init__()
+        query_token_dim = config.hidden_size
+        intermediate_size = config.intermediate_size
+        num_query_tokens = config.num_query_tokens
+        num_heads = config.num_attention_heads
+        num_layers = config.qformer_num_layers
+        
+        # Learnable query tokens (512 fixed tokens)
+        self.query_tokens = nn.Parameter(torch.randn(num_query_tokens, query_token_dim))
+        
+        # Cross-attention layers
+        self.cross_attention_layers = nn.ModuleList([
+            nn.TransformerDecoderLayer(d_model=query_token_dim, nhead=num_heads, dim_feedforward=intermediate_size)
+            for _ in range(num_layers)
+        ])
+        
+    def forward(self, input_features):
+
+        input_features = input_features.permute(1,0,2)
+        batch_size = input_features.size(1)
+        
+        # Query tokens are expanded to match batch size
+        query_tokens_expanded = self.query_tokens.unsqueeze(1).expand(-1, batch_size, -1)  # (batch_size, num_query_tokens, query_token_dim)
+        
+        # Transformer decoder cross-attention with input features as the memory
+        query_output = query_tokens_expanded
+        for layer in self.cross_attention_layers:
+            query_output = layer(query_output, input_features)
+        
+        #(query_nums, batch_size, query_dim)
+        query_output = query_output.permute(1,0,2)
+        
+        return query_output
+    
+
+class StopPrediction(nn.Module):
+    def __init__(self, hidden_size, dropout_rate):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(hidden_size, hidden_size),
+                                 nn.ReLU(),
+                                 BertLayerNorm(hidden_size, eps=1e-12),
+                                 nn.Dropout(dropout_rate),
+                                 nn.Linear(hidden_size, 1))
+    def forward(self, x):
+        return self.net(x)
+
 class BertOutAttention(nn.Module):
     def __init__(self, config, ctx_dim=None):
         super().__init__()
@@ -419,6 +467,7 @@ class LanguageEncoder(nn.Module):
         self.layer = nn.ModuleList(
             [BertLayer(config) for _ in range(self.num_l_layers)]
         )
+
         if not self.update_lang_bert:
             for name, param in self.layer.named_parameters():
                 param.requires_grad = False
@@ -441,7 +490,6 @@ class CrossmodalEncoder(nn.Module):
         )
 
     def forward(self, txt_embeds, txt_masks, img_embeds, img_masks, graph_sprels=None):
-        print(f"gmap_embeds:{img_embeds.shape},gmap_masks:{img_masks}")
         extended_txt_masks = extend_neg_masks(txt_masks)
         extended_img_masks = extend_neg_masks(img_masks) # (N, 1(H), 1(L_q), L_v)
         for layer_module in self.x_layers:
@@ -460,20 +508,11 @@ class ImageEmbeddings(nn.Module):
         self.img_layer_norm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.loc_linear = nn.Linear(config.angle_feat_size, config.hidden_size)
         self.loc_layer_norm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        if config.use_depth_embedding:
+        if config.depth_feat_size > 0:
             self.dep_linear = nn.Linear(config.depth_feat_size, config.hidden_size)
             self.dep_layer_norm = BertLayerNorm(config.hidden_size, eps=1e-12)
         else:
             self.dep_linear = self.dep_layer_norm = None
-
-        # if config.obj_feat_size > 0 and config.obj_feat_size != config.image_feat_size:
-        #     self.obj_linear = nn.Linear(config.obj_feat_size, config.hidden_size)
-        #     self.obj_layer_norm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        # else:
-        #     self.obj_linear = self.obj_layer_norm = None
-
-        # 0: non-navigable, 1: navigable
-        self.nav_type_embedding = nn.Embedding(2, config.hidden_size)
 
         # tf naming convention for layer norm
         self.layer_norm = BertLayerNorm(config.hidden_size, eps=1e-12)
@@ -487,35 +526,20 @@ class ImageEmbeddings(nn.Module):
             self.pano_encoder = None
 
     def forward(
-        self, traj_view_img_fts, traj_obj_img_fts, traj_loc_fts, traj_nav_types, 
-        traj_step_lens, traj_vp_view_lens, traj_vp_obj_lens, type_embed_layer
+        self, traj_view_img_fts, traj_view_dep_fts, traj_loc_fts, 
+        traj_step_lens, traj_vp_view_lens, type_embed_layer
     ):
         device = traj_view_img_fts.device
-        has_obj = traj_obj_img_fts is not None
 
         traj_view_img_embeds = self.img_layer_norm(self.img_linear(traj_view_img_fts))
-        if has_obj:
-            if self.obj_linear is None:
-                traj_obj_img_embeds = self.img_layer_norm(self.img_linear(traj_obj_img_fts))
-            else:
-                traj_obj_img_embeds = self.obj_layer_norm(self.obj_linear(traj_obj_img_embeds))
-            traj_img_embeds = []
-            for view_embed, obj_embed, view_len, obj_len in zip(
-                traj_view_img_embeds, traj_obj_img_embeds, traj_vp_view_lens, traj_vp_obj_lens
-            ):
-                if obj_len > 0:
-                    traj_img_embeds.append(torch.cat([view_embed[:view_len], obj_embed[:obj_len]], 0))
-                else:
-                    traj_img_embeds.append(view_embed[:view_len])
-            traj_img_embeds = pad_tensors_wgrad(traj_img_embeds)
-            traj_vp_lens = traj_vp_view_lens + traj_vp_obj_lens
-        else:
-            traj_img_embeds = traj_view_img_embeds
-            traj_vp_lens = traj_vp_view_lens
+        if self.dep_linear is not None:
+            traj_view_img_embeds = traj_view_img_embeds + \
+                                   self.dep_layer_norm(self.dep_linear(traj_view_dep_fts))
+        traj_img_embeds = traj_view_img_embeds
+        traj_vp_lens = traj_vp_view_lens
 
         traj_embeds = traj_img_embeds + \
                       self.loc_layer_norm(self.loc_linear(traj_loc_fts)) + \
-                      self.nav_type_embedding(traj_nav_types) + \
                       type_embed_layer(torch.ones(1, 1).long().to(device))
         traj_embeds = self.layer_norm(traj_embeds)
         traj_embeds = self.dropout(traj_embeds)
@@ -526,45 +550,71 @@ class ImageEmbeddings(nn.Module):
                 traj_embeds, src_key_padding_mask=traj_masks.logical_not()
             )
 
+        # [bs,views,768]
         split_traj_embeds = torch.split(traj_embeds, traj_step_lens, 0)
         split_traj_vp_lens = torch.split(traj_vp_lens, traj_step_lens, 0)
         return split_traj_embeds, split_traj_vp_lens
-        
+
 class LocalVPEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.vp_pos_embeddings = nn.Sequential(
-            nn.Linear(config.angle_feat_size*2 + 6, config.hidden_size),
+            nn.Linear(config.angle_feat_size + 3, config.hidden_size),
             BertLayerNorm(config.hidden_size, eps=1e-12)
         )
+        # self.vp_pos_embeddings = nn.Sequential(
+        #     nn.Linear(config.angle_feat_size*2 + 6, config.hidden_size),
+        #     BertLayerNorm(config.hidden_size, eps=1e-12)
+        # )
+        self.vp_step_embeddings = nn.Embedding(config.max_action_steps, config.hidden_size)
         self.encoder = CrossmodalEncoder(config)
 
-    def vp_input_embedding(self, split_traj_embeds, split_traj_vp_lens, vp_pos_fts):
-        vp_img_embeds = pad_tensors_wgrad([x[-1] for x in split_traj_embeds])
-        vp_lens = torch.stack([x[-1]+1 for x in split_traj_vp_lens], 0)
-        vp_masks = gen_seq_masks(vp_lens)
-        max_vp_len = max(vp_lens)
+    def _aggregate_vp_features(
+        self, split_traj_embeds, split_traj_vp_lens
+    ):
+        batch_size = len(split_traj_embeds)
+        device = split_traj_embeds[0].device
 
-        batch_size, _, hidden_size = vp_img_embeds.size()
-        device = vp_img_embeds.device
-        # add [stop] token at beginning
-        vp_img_embeds = torch.cat(
-            [torch.zeros(batch_size, 1, hidden_size).to(device), vp_img_embeds], 1
-        )[:, :max_vp_len]
-        vp_embeds = vp_img_embeds + self.vp_pos_embeddings(vp_pos_fts)
+        batch_vp_img_fts = []
+        for i in range(batch_size):
+            vp_fts = []
+            vp_masks = gen_seq_masks(split_traj_vp_lens[i])
+            max_vp_len = max(split_traj_vp_lens[i])
+            i_traj_embeds = split_traj_embeds[i][:, :max_vp_len] * vp_masks.unsqueeze(2)
+            for t in range(len(split_traj_embeds[i])):
+                vp_fts.append(torch.sum(i_traj_embeds[t], 0) / split_traj_vp_lens[i][t])
+            vp_fts = torch.stack(vp_fts, 0)
+            batch_vp_img_fts.append(vp_fts)
+
+        batch_vp_img_fts = pad_tensors_wgrad(batch_vp_img_fts)
+        # # no [STOP]
+        # # add a [stop] token at beginning
+        # batch_vp_img_fts = torch.cat(
+        #     [torch.zeros(batch_size, 1, batch_vp_img_fts.size(2)).to(device), batch_vp_img_fts], 
+        #     dim=1
+        # )
+        return batch_vp_img_fts
+
+    def vp_input_embedding(self, split_traj_embeds, split_traj_vp_lens, nav_step_id, vp_pos_fts, gmap_lens):
+        # aggregate pano_fts to 1 fts
+        split_traj_embeds = self._aggregate_vp_features(
+            split_traj_embeds, split_traj_vp_lens
+        )
+        vp_masks = gen_seq_masks(gmap_lens)
+        vp_embeds = split_traj_embeds + self.vp_step_embeddings(nav_step_id) + self.vp_pos_embeddings(vp_pos_fts)
 
         return vp_embeds, vp_masks
 
     def forward(
-        self, txt_embeds, txt_masks, split_traj_embeds, split_traj_vp_lens, vp_pos_fts
+        self, txt_embeds, txt_masks, split_traj_embeds, split_traj_vp_lens, nav_step_id, vp_pos_fts, gmap_lens
     ):
         vp_embeds, vp_masks = self.vp_input_embedding(
-            split_traj_embeds, split_traj_vp_lens, vp_pos_fts
+            split_traj_embeds, split_traj_vp_lens, nav_step_id, vp_pos_fts, gmap_lens
         )
         vp_embeds = self.encoder(txt_embeds, txt_masks, vp_embeds, vp_masks)
         return vp_embeds
 
-class  GlobalMapEncoder(nn.Module):
+class GlobalMapEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.gmap_pos_embeddings = nn.Sequential(
@@ -638,7 +688,6 @@ class  GlobalMapEncoder(nn.Module):
             gmap_step_ids, gmap_pos_fts, gmap_lens
         )
         
-        
         if self.sprel_linear is not None:
             graph_sprels = self.sprel_linear(graph_sprels.unsqueeze(3)).squeeze(3).unsqueeze(1)
         else:
@@ -650,141 +699,98 @@ class  GlobalMapEncoder(nn.Module):
         )
         return gmap_embeds
        
-class NextActionPrediction(nn.Module):
-    def __init__(self, hidden_size, dropout_rate):
-        super().__init__()
-        self.net = nn.Sequential(nn.Linear(hidden_size, hidden_size),
-                                 nn.ReLU(),
-                                 BertLayerNorm(hidden_size, eps=1e-12),
-                                 nn.Dropout(dropout_rate),
-                                 nn.Linear(hidden_size, 1))
 
-    def forward(self, x):
-        return self.net(x)
-
-class GlocalTextPathNavCMT(BertPreTrainedModel):
+class GlocalTextPathCMT(BertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
+        
+        self.hidden_size = config.hidden_size
+
         self.embeddings = BertEmbeddings(config)
         self.lang_encoder = LanguageEncoder(config)
 
         self.img_embeddings = ImageEmbeddings(config)
-        self.global_encoder = GlobalMapEncoder(config)
-        self.global_sap_head = NextActionPrediction(self.config.hidden_size, 0.1)
-        
+
+        self.local_encoder = LocalVPEncoder(config)
+   
         self.init_weights()
-        
-        if config.fix_lang_embedding:
-            for k, v in self.embeddings.named_parameters():
-                v.requires_grad = False
-            for k, v in self.lang_encoder.named_parameters():
-                v.requires_grad = False
-        if config.fix_pano_embedding:
-            for k, v in self.img_embeddings.named_parameters():
-                v.requires_grad = False
-    
-    def forward_txt(self, txt_ids, txt_masks):
+
+    def forward(
+        self, txt_ids, txt_lens, traj_view_img_fts, traj_view_dep_fts, traj_loc_fts, 
+        traj_step_lens, traj_vp_view_lens, nav_step_ids, vp_pos_fts, gmap_lens
+    ):           
+          
+        # text embedding
         txt_token_type_ids = torch.zeros_like(txt_ids)
         txt_embeds = self.embeddings(txt_ids, token_type_ids=txt_token_type_ids)
+        txt_masks = gen_seq_masks(txt_lens)
         txt_embeds = self.lang_encoder(txt_embeds, txt_masks)
+
+        # trajectory embedding
+        split_traj_embeds, split_traj_vp_lens = self.img_embeddings(
+            traj_view_img_fts, traj_view_dep_fts, traj_loc_fts, 
+            traj_step_lens, traj_vp_view_lens,
+            self.embeddings.token_type_embeddings
+        )
+        
+        # vp_embeds
+        gmap_embeds = self.local_encoder(
+            txt_embeds, txt_masks,
+            split_traj_embeds, split_traj_vp_lens, nav_step_ids, vp_pos_fts, gmap_lens
+        )
+        
+        traj_step_lens = torch.tensor(traj_step_lens).to(txt_embeds.device)
+        indices = (traj_step_lens - 1).view(-1, 1, 1).expand(-1, 1, self.hidden_size)
+        last_vp_embed = torch.gather(gmap_embeds, 1, indices)  # 形状为 [batch_size, 1, hidden_size]
+
+        return last_vp_embed
+    
+    def forward_mlm(
+        self, txt_ids, txt_lens, traj_view_img_fts, traj_view_dep_fts, traj_obj_img_fts, traj_loc_fts, traj_nav_types, 
+        traj_step_lens, traj_vp_view_lens, traj_vp_obj_lens, traj_vpids, traj_cand_vpids,
+        gmap_lens, gmap_step_ids, gmap_pos_fts, gmap_pair_dists, gmap_vpids,
+    ):
+        # text embedding
+        txt_token_type_ids = torch.zeros_like(txt_ids)
+        txt_embeds = self.embeddings(txt_ids, token_type_ids=txt_token_type_ids)
+        txt_masks = gen_seq_masks(txt_lens)
+        txt_embeds = self.lang_encoder(txt_embeds, txt_masks)
+        extended_txt_masks = extend_neg_masks(txt_masks)
+
+        # trajectory embedding
+        split_traj_embeds, split_traj_vp_lens = self.img_embeddings(
+            traj_view_img_fts, traj_view_dep_fts, traj_obj_img_fts, traj_loc_fts, traj_nav_types, 
+            traj_step_lens, traj_vp_view_lens, traj_vp_obj_lens,
+            self.embeddings.token_type_embeddings
+        )
+        
+        # gmap embeds
+        gmap_input_embeds, gmap_masks = self.global_encoder.gmap_input_embedding(
+            split_traj_embeds, split_traj_vp_lens, traj_vpids, traj_cand_vpids, gmap_vpids,
+            gmap_step_ids, gmap_pos_fts, gmap_lens
+        )
+        gmap_txt_embeds = txt_embeds
+        extended_gmap_masks = extend_neg_masks(gmap_masks)
+        for layer_module in self.global_encoder.encoder.x_layers:
+            gmap_txt_embeds = layer_module.forward_lang2visn(
+                gmap_txt_embeds, extended_txt_masks, 
+                gmap_input_embeds, extended_gmap_masks,
+            )
+
+        # vp embeds
+        # vp_input_embeds, vp_masks = self.local_encoder.vp_input_embedding(
+        #     split_traj_embeds, split_traj_vp_lens, vp_pos_fts
+        # )
+        # vp_txt_embeds = txt_embeds
+        # extended_vp_masks = extend_neg_masks(vp_masks)
+        # for layer_module in self.local_encoder.encoder.x_layers:
+        #     vp_txt_embeds = layer_module.forward_lang2visn(
+        #         vp_txt_embeds, extended_txt_masks, 
+        #         vp_input_embeds, extended_vp_masks,
+        #     )
+
+        # txt_embeds = gmap_txt_embeds + vp_txt_embeds
+        txt_embeds = gmap_txt_embeds
         return txt_embeds
 
-    def forward_panorama(
-        self, rgb_fts, dep_fts, loc_fts, nav_types, view_lens
-    ):
-        device = rgb_fts.device
-
-        rgb_embeds = self.img_embeddings.img_layer_norm(
-            self.img_embeddings.img_linear(rgb_fts)
-        )
-        # print(f"dep_fts：{dep_fts.shape}")
-        if self.img_embeddings.dep_linear is not None:
-            dep_embeds = self.img_embeddings.dep_layer_norm(
-                self.img_embeddings.dep_linear(dep_fts)
-            )
-            img_embeds = rgb_embeds + dep_embeds
-        else:
-            img_embeds = rgb_embeds
-
-        pano_embeds = img_embeds + \
-                      self.img_embeddings.loc_layer_norm(self.img_embeddings.loc_linear(loc_fts)) + \
-                      self.img_embeddings.nav_type_embedding(nav_types) + \
-                      self.embeddings.token_type_embeddings(torch.ones(1, 1).long().to(device))
-        pano_embeds = self.img_embeddings.layer_norm(pano_embeds)
-        pano_embeds = self.img_embeddings.dropout(pano_embeds)
-
-        pano_lens = view_lens
-        pano_masks = gen_seq_masks(pano_lens)
-        if self.img_embeddings.pano_encoder is not None:
-            pano_embeds = self.img_embeddings.pano_encoder(
-                pano_embeds, src_key_padding_mask=pano_masks.logical_not()
-            )
-        return pano_embeds, pano_masks
-
-    def forward_navigation(
-        self, txt_embeds, txt_masks, 
-        gmap_vpids, gmap_step_ids, 
-        gmap_img_fts, gmap_pos_fts, 
-        gmap_masks, gmap_visited_masks, gmap_pair_dists,
-    ):
-        # global branch
-        gmap_embeds = gmap_img_fts + \
-                      self.global_encoder.gmap_step_embeddings(gmap_step_ids) + \
-                      self.global_encoder.gmap_pos_embeddings(gmap_pos_fts)
-
-        if self.global_encoder.sprel_linear is not None:
-            graph_sprels = self.global_encoder.sprel_linear(
-                gmap_pair_dists.unsqueeze(3)).squeeze(3).unsqueeze(1)
-        else:
-            graph_sprels = None
-
-        gmap_embeds = self.global_encoder.encoder(
-            txt_embeds, txt_masks, gmap_embeds, gmap_masks,
-            graph_sprels=graph_sprels
-        )
-        global_logits = self.global_sap_head(gmap_embeds).squeeze(2)
-        global_logits.masked_fill_(gmap_visited_masks, -float('inf'))
-        global_logits.masked_fill_(gmap_masks.logical_not(), -float('inf'))
-
-        outs = {
-            'gmap_embeds': gmap_embeds,
-            'global_logits': global_logits,
-        }
-        return outs
-
-    def forward_stop(
-        self, txt_embeds, txt_masks, gmap_embeds, gmap_masks
-    ):
-        graph_sprels = None
-
-        gmap_embeds = self.global_encoder.encoder(
-            txt_embeds, txt_masks, gmap_embeds, gmap_masks,
-            graph_sprels=graph_sprels
-        )
-        global_logits = self.global_sap_head(gmap_embeds).squeeze(2)
-        # # 测试不使用mask visited
-        # global_logits.masked_fill_(gmap_visited_masks, -float('inf'))
-        global_logits.masked_fill_(gmap_masks.logical_not(), -float('inf'))
-        
-        return global_logits
-
-    def forward(self, mode, batch, **kwargs):
-        if mode == 'language':
-            txt_embeds = self.forward_text(batch['txt_ids'], batch['txt_masks'])
-            return txt_embeds
-
-        elif mode == 'panorama':
-            pano_embeds, pano_masks = self.forward_panorama_per_step(
-                batch['view_img_fts'], batch['obj_img_fts'], batch['loc_fts'],
-                batch['nav_types'], batch['view_lens'], batch['obj_lens']
-            )
-            return pano_embeds, pano_masks
-
-        elif mode == 'navigation':
-             return self.forward_navigation_per_step(
-                batch['txt_embeds'], batch['txt_masks'], batch['gmap_img_embeds'], 
-                batch['gmap_step_ids'], batch['gmap_pos_fts'], batch['gmap_masks'],
-                batch['gmap_pair_dists'], batch['gmap_visited_masks'], batch['gmap_vpids'], 
-                batch['vp_img_embeds'], batch['vp_pos_fts'], batch['vp_masks'],
-                batch['vp_nav_masks'], batch['vp_obj_masks'], batch['vp_cand_vpids'],
-            )
+    

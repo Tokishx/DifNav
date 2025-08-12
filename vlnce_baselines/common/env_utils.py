@@ -69,6 +69,7 @@ def construct_envs(
     scenes = config.TASK_CONFIG.DATASET.CONTENT_SCENES
     if "*" in config.TASK_CONFIG.DATASET.CONTENT_SCENES:
         scenes = dataset.get_scenes_to_load(config.TASK_CONFIG.DATASET)
+        scenes.reverse()
     logger.info(f"SPLTI: {config.TASK_CONFIG.DATASET.SPLIT}, NUMBER OF SCENES: {len(scenes)}")
 
     if num_envs > 1:
@@ -85,6 +86,8 @@ def construct_envs(
             )
 
         random.shuffle(scenes)
+        # for ref
+        scenes.reverse()
 
     if len(scenes) == 1:
         scene_splits = [[scenes[0]] for _ in range(num_envs)]

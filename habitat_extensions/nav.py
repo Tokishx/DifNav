@@ -48,11 +48,8 @@ class MoveHighToLowAction(SimulatorTaskAction):
             turn_actions = [left_action] * (angle // turn_unit)
         else:
             turn_actions = [right_action] * (-angle // turn_unit)
-        # print(angle)
-        # print(self.cal_heading(self._sim.get_agent_state()))
         for turn_action in turn_actions:
             self._sim.step_without_obs(turn_action)
-            # print(self.cal_heading(self._sim.get_agent_state()))
     
     def step(self, *args: Any, 
             angle: float, distance: float,
@@ -186,11 +183,8 @@ class MoveHighToLowActionEval(SimulatorTaskAction):
             turn_actions = [left_action] * (angle // turn_unit)
         else:
             turn_actions = [right_action] * (-angle // turn_unit)
-        # print(angle)
-        # print(self.cal_heading(self._sim.get_agent_state()))
         for turn_action in turn_actions:
             self._sim.step_without_obs(turn_action)
-            # print(self.cal_heading(self._sim.get_agent_state()))
 
     def step(self, *args: Any, 
             angle: float, distance: float,
