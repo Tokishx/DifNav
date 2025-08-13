@@ -12,7 +12,7 @@
 1. Install `Habitat simulator`: follow instructions from [ETPNav](https://github.com/MarSaKi/ETPNav) and [VLN-CE](https://github.com/jacobkrantz/VLN-CE).
 2. Download the `Matterport3D Scene Dataset (MP3D)` from [Matterport](https://github.com/niessner/Matterport)
 3. Install the dependencies of the [ETPNav](https://github.com/MarSaKi/ETPNav) and [Nomad](https://github.com/robodhruv/visualnav-transformer).
-4. Download annotations and trained models from Google_Drive.
+4. Download annotations and trained models from [Google_Drive](https://drive.google.com/drive/u/1/folders/1BcEmhBIjMo7aDo1ORbB8sjfOpjpmUrso).
 5. The data should be stored under the `data` folder with the following structure:
 ```
 data-
