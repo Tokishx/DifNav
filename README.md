@@ -34,4 +34,4 @@ bash run_r2r/main.bash open_area eval 2333
 
 ## Acknowledgement
 - [ETPNav](https://github.com/MarSaKi/ETPNav): ETPNav implementation.
-- [Nomad](https://github.com/robodhruv/visualnav-transformer): Diffusion policy implementation.
+- [Nomad](https://github.com/robodhruv/visualnav-transformer): NoMaD implementation.
